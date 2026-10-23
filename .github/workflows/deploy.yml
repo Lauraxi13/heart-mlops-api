@@ -1,0 +1,150 @@
+# Despliegue automático de la API Heart MLOps en Azure Container Apps
+# Se ejecuta en cada push a main (excepto si solo cambia index.html o el README) o a mano desde la pestaña Actions
+# Crea la API con "az rest": funciona aunque Microsoft.App siga en "Registering"
+# Reutiliza el Resource Group, el ACR y el Environment del Módulo 3; solo crea una Container App nueva.
+name: Desplegar API Heart MLOps en Azure
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["index.html", "README.md"]
+  workflow_dispatch:
+
+env:
+  RESOURCE_GROUP: rg-mlops-ean            # el mismo del Módulo 3
+  ACR_NAME: acrmlopsean<usuario>          # el mismo del Módulo 3 (cámbialo por el tuyo)
+  ENVIRONMENT: env-mlops-ean              # el mismo del Módulo 3
+  APP_NAME: api-heart-mlops               # NUEVA Container App (distinta de api-mlops-ean)
+  API_VERSION: "2024-03-01"
+
+jobs:
+  desplegar:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Descarga el código del repositorio
+      - uses: actions/checkout@v4
+
+      # 2. Comprueba que los 5 secretos existen (falla rápido y con un mensaje claro)
+      - name: Verificar secretos
+        env:
+          AZ: ${{ secrets.AZURE_CREDENTIALS }}
+          AU: ${{ secrets.ACR_USERNAME }}
+          AP: ${{ secrets.ACR_PASSWORD }}
+          DU: ${{ secrets.DATABRICKS_URL }}
+          DT: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          faltan=""
+          [ -z "$AZ" ] && faltan="$faltan AZURE_CREDENTIALS"
+          [ -z "$AU" ] && faltan="$faltan ACR_USERNAME"
+          [ -z "$AP" ] && faltan="$faltan ACR_PASSWORD"
+          [ -z "$DU" ] && faltan="$faltan DATABRICKS_URL"
+          [ -z "$DT" ] && faltan="$faltan DATABRICKS_TOKEN"
+          if [ -n "$faltan" ]; then echo "Faltan secretos en GitHub:$faltan"; exit 1; fi
+          echo "Los 5 secretos están configurados"
+
+      # 3. Pruebas automáticas de la API (sin llamar a Databricks)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Pruebas de la API
+        run: |
+          pip install -r requirements-dev.txt
+          pytest -q
+
+      # 4. Inicia sesión en Azure con la cuenta de servicio
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # 5. Construye la imagen Docker y la sube al Container Registry
+      - name: Construir y subir imagen
+        env:
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+        run: |
+          IMAGE="$ACR_NAME.azurecr.io/$APP_NAME:${GITHUB_SHA}"   # cada versión con la etiqueta del commit
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"                    # la deja disponible para los pasos siguientes
+          echo "$ACR_PASSWORD" | docker login "$ACR_NAME.azurecr.io" -u "$ACR_USERNAME" --password-stdin
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      # 6. Crea o actualiza la Container App (PUT sirve para las dos cosas)
+      - name: Crear o actualizar la API
+        env:
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+          DB_URL: ${{ secrets.DATABRICKS_URL }}
+          DB_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          set -e
+          SUB=$(az account show --query id -o tsv)
+          BASE="https://management.azure.com/subscriptions/$SUB/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.App"
+          ENV_ID="/subscriptions/$SUB/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.App/managedEnvironments/$ENVIRONMENT"
+          APP_URL="$BASE/containerApps/$APP_NAME?api-version=$API_VERSION"
+
+          # Región: la misma del Environment del Módulo 3
+          LOCATION=$(az rest --method get --url "$BASE/managedEnvironments/$ENVIRONMENT?api-version=$API_VERSION" --query location -o tsv)
+          echo "Región del Environment: $LOCATION"
+
+          # Arma la definición de la API en app.json (los secretos viajan como secretos de la Container App)
+          jq -n \
+            --arg loc "$LOCATION" --arg env "$ENV_ID" --arg image "$IMAGE" \
+            --arg server "$ACR_NAME.azurecr.io" --arg user "$ACR_USERNAME" --arg pass "$ACR_PASSWORD" \
+            --arg url "$DB_URL" --arg token "$DB_TOKEN" \
+            '{
+              location: $loc,
+              properties: {
+                environmentId: $env,
+                workloadProfileName: "Consumption",
+                configuration: {
+                  ingress: { external: true, targetPort: 8000 },
+                  registries: [ { server: $server, username: $user, passwordSecretRef: "acr-password" } ],
+                  secrets: [
+                    { name: "acr-password", value: $pass },
+                    { name: "databricks-url", value: $url },
+                    { name: "databricks-token", value: $token }
+                  ]
+                },
+                template: {
+                  containers: [ {
+                    name: "api",
+                    image: $image,
+                    resources: { cpu: 0.5, memory: "1Gi" },
+                    env: [
+                      { name: "DATABRICKS_URL", secretRef: "databricks-url" },
+                      { name: "DATABRICKS_TOKEN", secretRef: "databricks-token" }
+                    ]
+                  } ],
+                  scale: { minReplicas: 0, maxReplicas: 1 }
+                }
+              }
+            }' > app.json
+
+          # Envía la definición a Azure (crea la primera vez, actualiza las siguientes)
+          az rest --method put --url "$APP_URL" --body @app.json -o none
+          rm app.json
+
+          # Espera hasta que Azure termine (máximo 10 minutos)
+          for i in $(seq 1 60); do
+            STATE=$(az rest --method get --url "$APP_URL" --query properties.provisioningState -o tsv)
+            echo "Estado: $STATE"
+            if [ "$STATE" = "Succeeded" ]; then break; fi
+            if [ "$STATE" = "Failed" ]; then echo "El despliegue falló"; exit 1; fi
+            sleep 10
+          done
+          if [ "$STATE" != "Succeeded" ]; then echo "Tiempo de espera agotado"; exit 1; fi
+
+      # 7. Muestra la URL pública y comprueba que /health responde
+      - name: URL de la API y prueba de humo
+        run: |
+          SUB=$(az account show --query id -o tsv)
+          FQDN=$(az rest --method get \
+            --url "https://management.azure.com/subscriptions/$SUB/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.App/containerApps/$APP_NAME?api-version=$API_VERSION" \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          echo "API publicada en: https://$FQDN"
+          echo "Documentación:    https://$FQDN/docs"
+          for i in $(seq 1 12); do
+            if curl -sf "https://$FQDN/health"; then echo; echo "La API responde"; exit 0; fi
+            echo "Esperando el arranque del contenedor ($i/12)..."; sleep 10
+          done
+          echo "La API no respondió en /health"; exit 1
