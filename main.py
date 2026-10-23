@@ -30,9 +30,9 @@ class Paciente(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         json_schema_extra={"example": {
-            "age": 63, "trestbps": 145, "chol": 233, "thalch": 150, "oldpeak": 2.3,
-            "fbs": 1, "exang": 0, "sex": "Male", "cp": "typical angina",
-            "restecg": "lv hypertrophy", "slope": "downsloping",
+            "age": 67, "trestbps": 160, "chol": 286, "thalch": 108, "oldpeak": 1.5,
+            "fbs": 0, "exang": 1, "sex": "Male", "cp": "asymptomatic",
+            "restecg": "lv hypertrophy", "slope": "flat",
         }},
     )
 
@@ -93,9 +93,9 @@ def predecir(paciente: Paciente):
         raise HTTPException(status_code=502, detail=f"Error de Databricks: {r.text}")
 
     pred = int(r.json()["predictions"][0])  # 1 = enfermedad cardiaca, 0 = sin enfermedad
+    # "predictions" conserva el formato del endpoint de Databricks; los otros campos lo explican
     return {
-        "prediccion": pred,
+        "predictions": [pred],
         "resultado": "Riesgo alto de enfermedad cardiaca" if pred == 1 else "Riesgo bajo de enfermedad cardiaca",
         "aviso": "Resultado de un modelo académico; no reemplaza un diagnóstico médico.",
-        "datos_recibidos": paciente.model_dump(),
     }

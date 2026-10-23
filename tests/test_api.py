@@ -44,7 +44,7 @@ def test_predecir_envia_las_11_variables(monkeypatch):
     monkeypatch.setattr(main.requests, "post", post_falso)
     r = client.post("/predecir", json=PACIENTE)
     assert r.status_code == 200
-    assert r.json()["prediccion"] == 1
+    assert r.json()["predictions"] == [1]
     registro = enviado["dataframe_records"][0]
     assert sorted(registro) == sorted(PACIENTE)          # exactamente las 11 variables
     assert isinstance(registro["age"], float)            # la firma pide double

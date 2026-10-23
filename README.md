@@ -40,9 +40,8 @@ Exactamente estas 11 claves, ni más ni menos (una clave extra o faltante devuel
 `null` se permite solo donde el dataset original tenía faltantes: el Pipeline del modelo los imputa igual que en el entrenamiento. Respuesta:
 
 ```json
-{"prediccion": 1, "resultado": "Riesgo alto de enfermedad cardiaca",
- "aviso": "Resultado de un modelo académico; no reemplaza un diagnóstico médico.",
- "datos_recibidos": {"age": 63.0, "...": "..."}}
+{"predictions": [1], "resultado": "Riesgo alto de enfermedad cardiaca",
+ "aviso": "Resultado de un modelo académico; no reemplaza un diagnóstico médico."}
 ```
 
 ## Ejecutar en local (Windows, PowerShell)
@@ -60,12 +59,12 @@ Abre http://127.0.0.1:8000/docs para probar `/predecir` desde el navegador.
 
 ## Despliegue
 
-El workflow `deploy.yml` se ejecuta en cada push a `main`. Reutiliza `rg-mlops-ean`, `env-mlops-ean` y `acrmlopsean<usuario>` del Módulo 3 y crea (o actualiza) la Container App **`api-heart-mlops`**. Necesita 5 secretos en *Settings → Secrets and variables → Actions*:
+El workflow `deploy.yml` se ejecuta en cada push a `main`. Reutiliza `rg-mlops-ean`, `env-mi-proyecto` y `acrmiprojectolaura26` del Módulo 3 y crea (o actualiza) la Container App **`api-heart-mlops`**. Necesita 5 secretos en *Settings → Secrets and variables → Actions*:
 
 | Secreto | Valor |
 |---|---|
 | `AZURE_CREDENTIALS` | JSON de 4 campos de la cuenta de servicio (clientId, clientSecret, subscriptionId, tenantId) |
-| `ACR_USERNAME` | Usuario admin del ACR (`acrmlopsean<usuario>`) |
+| `ACR_USERNAME` | Usuario admin del ACR (`acrmiprojectolaura26`) |
 | `ACR_PASSWORD` | Contraseña admin del ACR |
 | `DATABRICKS_URL` | `https://TU_WORKSPACE.cloud.databricks.com/serving-endpoints/heart-mlops-endpoint/invocations` |
 | `DATABRICKS_TOKEN` | Token personal de Databricks (`dapi...`) |

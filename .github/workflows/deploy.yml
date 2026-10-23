@@ -12,8 +12,8 @@ on:
 
 env:
   RESOURCE_GROUP: rg-mlops-ean            # el mismo del Módulo 3
-  ACR_NAME: acrmlopsean<usuario>          # el mismo del Módulo 3 (cámbialo por el tuyo)
-  ENVIRONMENT: env-mlops-ean              # el mismo del Módulo 3
+  ACR_NAME: acrmiprojectolaura26          # tu ACR del Módulo 3
+  ENVIRONMENT: env-mi-proyecto            # tu Environment del Módulo 3 (West US 2)
   APP_NAME: api-heart-mlops               # NUEVA Container App (distinta de api-mlops-ean)
   API_VERSION: "2024-03-01"
 
@@ -87,6 +87,7 @@ jobs:
           echo "Región del Environment: $LOCATION"
 
           # Arma la definición de la API en app.json (los secretos viajan como secretos de la Container App)
+          # minReplicas 1: una réplica siempre encendida, para que la API responda sin arranque en frío
           jq -n \
             --arg loc "$LOCATION" --arg env "$ENV_ID" --arg image "$IMAGE" \
             --arg server "$ACR_NAME.azurecr.io" --arg user "$ACR_USERNAME" --arg pass "$ACR_PASSWORD" \
@@ -115,7 +116,7 @@ jobs:
                       { name: "DATABRICKS_TOKEN", secretRef: "databricks-token" }
                     ]
                   } ],
-                  scale: { minReplicas: 0, maxReplicas: 1 }
+                  scale: { minReplicas: 1, maxReplicas: 1 }
                 }
               }
             }' > app.json
