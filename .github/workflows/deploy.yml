@@ -12,8 +12,8 @@ on:
 
 env:
   RESOURCE_GROUP: rg-mlops-ean            # el mismo del Módulo 3
-  ACR_NAME: acrmlopsean<usuario>          # el mismo del Módulo 3 (cámbialo por el tuyo)
-  ENVIRONMENT: env-mlops-ean              # el mismo del Módulo 3
+  ACR_NAME: acrmiprojectolaura26          # el mismo del Módulo 3 (cámbialo por el tuyo)
+  ENVIRONMENT: env-mi-proyecto              # el mismo del Módulo 3
   APP_NAME: api-heart-mlops               # NUEVA Container App (distinta de api-mlops-ean)
   API_VERSION: "2024-03-01"
 
